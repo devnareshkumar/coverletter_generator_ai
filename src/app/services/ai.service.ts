@@ -67,6 +67,13 @@ Extract and return ONLY this JSON structure (no markdown, no code blocks):
     return this.callAI(prompt, apiKey, model);
   }
 
+  generateResume(prompt: string, apiKey: string, model: string): Observable<any> {
+    if (!apiKey) {
+      return throwError(() => new Error('API key not configured'));
+    }
+    return this.callAI(prompt, apiKey, model);
+  }
+
   private callAI(prompt: string, apiKey: string, model: string): Observable<any> {
     return this.callPerplexity(prompt, apiKey, model);
   }

@@ -6,24 +6,29 @@
         <p>Create professional cover letters with Perplexity AI</p>
       </div>
       <div class="header-actions">
-        <div class="theme-switcher">
-          <label for="theme-select"><i class="fa-solid fa-palette"></i></label>
-          <select id="theme-select" (change)="setTheme($event)">
-            <option value="system">System</option>
-            <option value="light">Light</option>
-            <option value="dark">Dark</option>
-          </select>
+        <div class="theme-toggle">
+          <button (click)="setTheme('light')" class="theme-btn" [class.active]="themeService.theme() === 'light'"><i class="fa-solid fa-sun"></i></button>
+          <button (click)="setTheme('dark')" class="theme-btn" [class.active]="themeService.theme() === 'dark'"><i class="fa-solid fa-moon"></i></button>
         </div>
       </div>
     </div>
   </header>
 
   <main class="app-main">
-    <div *ngIf="errorMessage()" class="message error-message"><i class="fa-solid fa-circle-xmark"></i> {{ errorMessage() }}</div>
-    <div *ngIf="successMessage()" class="message success-message"><i class="fa-solid fa-circle-check"></i> {{ successMessage() }}</div>
+    <!-- Loading Overlay -->
+    <div *ngIf="generateInProgress()" class="loading-overlay">
+      <div class="loading-content">
+        <div class="loading-spinner">
+          <i class="fa-solid fa-spinner fa-spin"></i>
+        </div>
+        <div class="loading-text">
+          <h3>Generating Your Documents</h3>
+          <p>Please wait while we create your professional content...</p>
+        </div>
+      </div>
+    </div>
 
     <!-- Main Content (Resume + Job Details) -->
-    <div *ngIf="currentStep() === 'main'" class="step-container">
       <div class="config-grid">
         <div class="form-group">
           <label for="apiKey"><i class="fa-solid fa-key"></i> Perplexity API Key</label>
@@ -39,22 +44,163 @@
         </div>
       </div>
 
-      <div class="main-grid">
-        <!-- Left Column: Resume -->
-        <div class="grid-column">
-          <h2><i class="fa-solid fa-file-alt"></i> Your Resume</h2>
-          <p>Paste your full resume to get started.</p>
-          <div class="form-group">
-            <label for="resume">Resume</label>
-            <textarea id="resume" [ngModel]="resumeText()" (ngModelChange)="resumeText.set($event)" placeholder="Paste your resume here..."
-              class="form-control resume-input"></textarea>
+      <!-- Messages -->
+      <div *ngIf="errorMessage()" class="message error-message">
+        <i class="fa-solid fa-exclamation-triangle"></i> {{ errorMessage() }}
+      </div>
+      <div *ngIf="successMessage()" class="message success-message">
+        <i class="fa-solid fa-check-circle"></i> {{ successMessage() }}
+      </div>
+
+      <!-- Resume Input and Parsed Details Container -->
+      <div class="resume-container">
+        <div class="main-grid">
+          <!-- Left Column: Resume -->
+          <div class="grid-column">
+            <h2><i class="fa-solid fa-file-alt"></i> Your Resume</h2>
+            <p>Paste your resume text below, or upload a file (TXT, PDF, DOCX).</p>
+            
+            <div class="form-group">
+              <label for="resumeUpload" class="file-upload-label">
+                <i class="fa-solid fa-cloud-arrow-up"></i> 
+                {{ selectedFile() ? 'File Selected: ' + selectedFile()!.name : 'Upload Resume' }}
+              </label>
+              <input type="file" id="resumeUpload" (change)="onFileSelected($event)" accept=".txt,.pdf,.docx" class="file-input">
+              <div *ngIf="selectedFile()" class="file-selected-info">
+                <i class="fa-solid fa-file"></i> {{ selectedFile()!.name }} ({{ (selectedFile()!.size / 1024 / 1024).toFixed(2) }} MB)
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label for="resume">Resume Text</label>
+              <textarea id="resume" [ngModel]="resumeText()" (ngModelChange)="resumeText.set($event)" placeholder="Paste your resume here..."
+                class="form-control resume-input"></textarea>
+            </div>
+            <div class="button-group">
+              <button (click)="parseResume()" [disabled]="isLoading()" class="btn btn--secondary">
+                <span *ngIf="!isLoading()"><i class="fa-solid fa-file-import"></i> Parse Resume</span>
+                <span *ngIf="isLoading()"><i class="fa-solid fa-spinner fa-spin"></i> Parsing...</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Right Column: Parsed Resume Details -->
+          <div class="grid-column">
+            <div *ngIf="!resumeData()" class="parsed-placeholder">
+              <h2><i class="fa-solid fa-file-alt"></i> Parsed Resume Details</h2>
+              <p>Parse your resume to see detailed information here</p>
+            </div>
+
+            <div *ngIf="resumeData()" class="parsed-resume-details">
+            <div class="parsed-header">
+              <h2><i class="fa-solid fa-user"></i> Profile Information</h2>
+              <button (click)="openProfileModal()" class="btn btn--primary btn--small">
+                <i class="fa-solid fa-edit"></i> Edit Profile
+              </button>
+            </div>
+
+              <!-- Basic Info -->
+              <div class="profile-section">
+                <h3>Basic Information</h3>
+                <div class="profile-grid">
+                  <div class="profile-field">
+                    <label>Name:</label>
+                    <span>{{ resumeData()?.name || 'Not provided' }}</span>
+                  </div>
+                  <div class="profile-field">
+                    <label>Email:</label>
+                    <span>{{ resumeData()?.email || 'Not provided' }}</span>
+                  </div>
+                  <div class="profile-field">
+                    <label>Phone:</label>
+                    <span>{{ resumeData()?.phone || 'Not provided' }}</span>
+                  </div>
+                  <div class="profile-field">
+                    <label>Location:</label>
+                    <span>{{ resumeData()?.location || 'Not provided' }}</span>
+                  </div>
+                </div>
+                <div class="profile-field full-width">
+                  <label>Summary:</label>
+                  <span>{{ resumeData()?.summary || 'Not provided' }}</span>
+                </div>
+              </div>
+
+              <!-- Skills -->
+              <div class="profile-section">
+                <h3>Skills</h3>
+                <div class="skills-list">
+                  <span *ngFor="let skill of resumeData()?.skills" class="skill-tag">{{ skill }}</span>
+                </div>
+              </div>
+
+              <!-- Experience -->
+              <div class="profile-section">
+                <h3>Experience</h3>
+                <div class="experience-list">
+                  <div *ngFor="let exp of resumeData()?.experience; let i = index" class="experience-item">
+                    <div class="experience-header">
+                      <h4>{{ exp.position }} at {{ exp.company }}</h4>
+                    </div>
+                    <p class="experience-duration">{{ exp.duration || 'Duration not specified' }}</p>
+                    <p class="experience-description">{{ exp.description }}</p>
+                  </div>
+                  <div *ngIf="!resumeData()?.experience || resumeData()?.experience!.length === 0" class="empty-state">
+                    No experience entries found
+                  </div>
+                </div>
+              </div>
+
+              <!-- Projects -->
+              <div class="profile-section">
+                <h3>Projects</h3>
+                <div class="projects-list">
+                  <div *ngFor="let project of resumeData()?.projects; let i = index" class="project-item">
+                    <div class="project-header">
+                      <h4>{{ project.name }}</h4>
+                    </div>
+                    <p class="project-description">{{ project.description }}</p>
+                    <div class="project-tech" *ngIf="project.technologies && project.technologies.length > 0">
+                      <strong>Technologies:</strong> {{ project.technologies.join(', ') }}
+                    </div>
+                    <div class="project-link" *ngIf="project.link">
+                      <strong>Link:</strong> <a [href]="project.link" target="_blank">{{ project.link }}</a>
+                    </div>
+                  </div>
+                  <div *ngIf="!resumeData()?.projects || resumeData()?.projects!.length === 0" class="empty-state">
+                    No projects found
+                  </div>
+                </div>
+              </div>
+
+              <!-- Education -->
+              <div class="profile-section">
+                <h3>Education</h3>
+                <div class="education-list">
+                  <div *ngFor="let edu of resumeData()?.education; let i = index" class="education-item">
+                    <div class="education-header">
+                      <h4>{{ edu.degree }}</h4>
+                    </div>
+                    <p class="education-institution">{{ edu.institution }}</p>
+                    <p class="education-year">{{ edu.year || 'Year not specified' }}</p>
+                    <p class="education-details" *ngIf="edu.details">{{ edu.details }}</p>
+                  </div>
+                  <div *ngIf="!resumeData()?.education || resumeData()?.education!.length === 0" class="empty-state">
+                    No education entries found
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
+      </div>
 
-        <!-- Right Column: Job Details -->
-        <div class="grid-column">
-          <h2><i class="fa-solid fa-briefcase"></i> Job Details</h2>
-          <p>Provide the details for the job you're applying for.</p>
+      <!-- Job Details Section (Separate from grid flow) -->
+      <div class="job-details-section">
+        <h2><i class="fa-solid fa-briefcase"></i> Job Details</h2>
+        <p>Provide the details for the job you're applying for.</p>
+        
+        <div class="job-details-grid">
           <div class="form-group">
             <label for="jobTitle">Job Title</label>
             <input type="text" id="jobTitle" [ngModel]="jobTitle()" (ngModelChange)="jobTitle.set($event)" placeholder="e.g., Senior Software Engineer"
@@ -78,43 +224,365 @@
               <option value="formal">Formal &amp; Respectful</option>
             </select>
           </div>
+          <div class="form-group">
+            <label for="template"><i class="fa-solid fa-palette"></i> Template</label>
+            <select id="template" [ngModel]="selectedTemplate()" (ngModelChange)="selectedTemplate.set($event)" class="form-control">
+              <option value="classic">Classic</option>
+              <option value="modern">Modern</option>
+              <option value="creative">Creative</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="generate-section">
+          <div class="generate-buttons">
+            <button (click)="generateCoverLetter()" 
+                    [disabled]="isLoading() || generateInProgress() || !isResumeReady || !jobDetailsValid" 
+                    [class.disabled]="!isResumeReady || !jobDetailsValid" 
+                    [class.loading]="isLoading() || generateInProgress()" 
+                    class="btn btn--primary btn--action"
+                    [title]="(!isResumeReady ? 'Parse resume first. ' : '') + (!jobDetailsValid ? 'Fill in all job details.' : '')">
+              <div class="btn-content">
+                <div class="btn-icon">
+                  <i class="fa-solid fa-envelope-open-text fa-fw"></i>
+                </div>
+                <div class="btn-text">
+                  <span class="btn-title">Generate Cover Letter</span>
+                  <span class="btn-subtitle">Personalized & Professional</span>
+                </div>
+              </div>
+              <span *ngIf="generateInProgress()" class="loading-state">
+                <i class="fa-solid fa-spinner fa-spin"></i>
+                <span>Generating...</span>
+              </span>
+            </button>
+            <button (click)="generateResume()" 
+                    [disabled]="isLoading() || generateInProgress() || !isResumeReady || !jobTitle() || !companyName()" 
+                    [class.disabled]="!isResumeReady || !jobTitle() || !companyName()" 
+                    [class.loading]="isLoading() || generateInProgress()" 
+                    class="btn btn--secondary btn--action" 
+                    [title]="(!isResumeReady ? 'Parse resume first. ' : '') + ((!jobTitle() || !companyName()) ? 'Fill in job title and company name.' : '')">
+              <div class="btn-content">
+                <div class="btn-icon">
+                  <i class="fa-solid fa-file-user fa-fw"></i>
+                </div>
+                <div class="btn-text">
+                  <span class="btn-title">Generate Resume</span>
+                  <span class="btn-subtitle">ATS-Optimized & Tailored</span>
+                </div>
+              </div>
+              <span *ngIf="generateInProgress()" class="loading-state">
+                <i class="fa-solid fa-spinner fa-spin"></i>
+                <span>Generating...</span>
+              </span>
+            </button>
+            <button (click)="generateBoth()" 
+                    [disabled]="isLoading() || generateInProgress() || !isResumeReady || !jobDetailsValid" 
+                    [class.disabled]="!isResumeReady || !jobDetailsValid" 
+                    [class.loading]="isLoading() || generateInProgress()" 
+                    class="btn btn--accent btn--action" 
+                    [title]="(!isResumeReady ? 'Parse resume first. ' : '') + (!jobDetailsValid ? 'Fill in all job details.' : '')">
+              <div class="btn-content">
+                <div class="btn-icon">
+                  <i class="fa-solid fa-files fa-fw"></i>
+                </div>
+                <div class="btn-text">
+                  <span class="btn-title">Generate Both</span>
+                  <span class="btn-subtitle">Complete Application Package</span>
+                </div>
+              </div>
+              <span *ngIf="generateInProgress()" class="loading-state">
+                <i class="fa-solid fa-spinner fa-spin"></i>
+                <span>Generating...</span>
+              </span>
+            </button>
+          </div>
         </div>
       </div>
-
-      <div class="button-group">
-        <button (click)="generateCoverLetter()" [disabled]="isLoading()" class="btn btn--primary btn--full-width">
-          <span *ngIf="!isLoading()"><i class="fa-solid fa-wand-magic-sparkles"></i> Generate Cover Letter</span>
-          <span *ngIf="isLoading()"><i class="fa-solid fa-spinner fa-spin"></i> Generating...</span>
-        </button>
-      </div>
-    </div>
-
-    <!-- Step 3: Output -->
-    <div *ngIf="currentStep() === 'output'" class="step-container">
-      <h2><i class="fa-solid fa-file-invoice"></i> Your Cover Letter</h2>
-      <div class="cover-letter-display">
-        <div class="letter-content">{{ generatedCoverLetter() }}</div>
-      </div>
-      <div class="button-group">
-        <button (click)="copyToClipboard()" class="btn btn--primary"><i class="fa-solid fa-copy"></i> Copy</button>
-        <button (click)="downloadAsText()" class="btn btn--secondary"><i class="fa-solid fa-download"></i> Download TXT</button>
-        <button (click)="downloadAsMarkdown()" class="btn btn--secondary"><i class="fa-solid fa-download"></i> Download MD</button>
-        <!-- <button (click)="downloadAsPdf()" class="btn btn--secondary"><i class="fa-solid fa-file-pdf"></i> Download PDF</button> -->
-        <button (click)="startOver()" class="btn btn--secondary"><i class="fa-solid fa-repeat"></i> Generate Another</button>
-      </div>
-    </div>
-  </main>
+    </main>
 
   <footer class="app-footer">
     <div class="footer-content">
       <div class="footer-socials">
         <a href="https://github.com/devnareshkumar" target="_blank"><i class="fab fa-github"></i></a>
+        <span class="footer-separator">|</span>
         <a href="https://www.linkedin.com/in/naresh-kumar-katta/" target="_blank"><i class="fab fa-linkedin"></i></a>
+        <span class="footer-separator">|</span>
+        <a href="mailto:nareshkumarkatta9@gmail.com" title="Email me"><i class="fas fa-envelope"></i></a>
+        <span class="footer-separator">|</span>
+        <a href="https://www.linkedin.com/in/naresh-kumar-katta/" target="_blank" class="footer-name-link">Naresh Kumar</a>
       </div>
       <div class="footer-separator"></div>
       <div class="footer-coffee">
-        <a href="https://buymeacoffee.com/naresh_kumar" target="_blank" class="bmac-button"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" ></a>
+        <a href="https://buymeacoffee.com/naresh_kumar" target="_blank" class="bmac-button"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" /></a>
       </div>
     </div>
   </footer>
 </div>
+
+<!-- Profile Edit Modal -->
+<div *ngIf="showProfileModal" class="modal-overlay" (click)="closeProfileModal()">
+  <div class="modal-content large-modal" (click)="$event.stopPropagation()">
+    <div class="modal-header">
+      <h3>Edit Profile Information</h3>
+      <button (click)="closeProfileModal()" class="modal-close">
+        <i class="fa-solid fa-times"></i>
+      </button>
+    </div>
+
+    <!-- Tab Navigation -->
+    <div class="modal-tabs">
+      <button
+        (click)="setActiveTab('basic')"
+        [class.active]="activeModalTab() === 'basic'"
+        class="tab-button">
+        Basic Info
+      </button>
+      <button
+        (click)="setActiveTab('experience')"
+        [class.active]="activeModalTab() === 'experience'"
+        class="tab-button">
+        Experience
+      </button>
+      <button
+        (click)="setActiveTab('projects')"
+        [class.active]="activeModalTab() === 'projects'"
+        class="tab-button">
+        Projects
+      </button>
+      <button
+        (click)="setActiveTab('education')"
+        [class.active]="activeModalTab() === 'education'"
+        class="tab-button">
+        Education
+      </button>
+    </div>
+
+    <div class="modal-body">
+      <!-- Basic Info Tab -->
+      <div *ngIf="activeModalTab() === 'basic'" class="tab-content">
+        <form (ngSubmit)="updateProfile()" #profileForm="ngForm">
+          <div class="form-row">
+            <div class="form-group">
+              <label for="editName">Name</label>
+              <input type="text" id="editName" [(ngModel)]="editProfileData.name" name="name" class="form-control" />
+            </div>
+            <div class="form-group">
+              <label for="editEmail">Email</label>
+              <input type="email" id="editEmail" [(ngModel)]="editProfileData.email" name="email" class="form-control" />
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label for="editPhone">Phone</label>
+              <input type="text" id="editPhone" [(ngModel)]="editProfileData.phone" name="phone" class="form-control" />
+            </div>
+            <div class="form-group">
+              <label for="editLocation">Location</label>
+              <input type="text" id="editLocation" [(ngModel)]="editProfileData.location" name="location" class="form-control" />
+            </div>
+          </div>
+          <div class="form-group">
+            <label for="editSummary">Professional Summary</label>
+            <textarea id="editSummary" [(ngModel)]="editProfileData.summary" name="summary" class="form-control" rows="3"></textarea>
+          </div>
+          <div class="form-group">
+            <label for="editSkills">Skills (comma-separated)</label>
+            <input type="text" id="editSkills" [(ngModel)]="editProfileData.skillsString" name="skillsString" class="form-control"
+                   placeholder="JavaScript, React, Node.js, etc." />
+          </div>
+          <div class="modal-actions">
+            <button type="button" (click)="closeProfileModal()" class="btn btn--secondary">Cancel</button>
+            <button type="submit" class="btn btn--primary">Update Profile</button>
+          </div>
+        </form>
+      </div>
+
+      <!-- Experience Tab -->
+      <div *ngIf="activeModalTab() === 'experience'" class="tab-content">
+        <div class="experience-list">
+          <div *ngFor="let exp of resumeData()?.experience; let i = index" class="experience-item">
+            <div class="experience-header">
+              <h4>{{ exp.position }} at {{ exp.company }}</h4>
+              <div class="experience-actions">
+                <button (click)="editExperience(i)" class="btn btn--small">
+                  <i class="fa-solid fa-edit"></i>
+                </button>
+                <button (click)="deleteExperience(i)" class="btn btn--danger btn--small">
+                  <i class="fa-solid fa-trash"></i>
+                </button>
+              </div>
+            </div>
+            <p class="experience-duration">{{ exp.duration }}</p>
+            <p class="experience-description">{{ exp.description }}</p>
+          </div>
+          <div *ngIf="!resumeData()?.experience || resumeData()?.experience!.length === 0" class="empty-state">
+            No experience entries found
+          </div>
+        </div>
+        <div class="modal-actions" *ngIf="!isAddingExperience && editingExperienceIndex === null">
+          <button (click)="addExperience()" class="btn btn--secondary">
+            <i class="fa-solid fa-plus"></i> Add Experience
+          </button>
+        </div>
+
+        <!-- Experience Form (shown when editing/adding) -->
+        <div *ngIf="editingExperienceIndex !== null || isAddingExperience" class="experience-form">
+          <h4>{{ editingExperienceIndex !== null ? 'Edit' : 'Add' }} Experience</h4>
+          <form (ngSubmit)="saveExperience()" #experienceForm="ngForm">
+            <div class="form-group">
+              <label for="expPosition">Position</label>
+              <input type="text" id="expPosition" [(ngModel)]="editExperienceData.position" name="position" class="form-control" required />
+            </div>
+            <div class="form-group">
+              <label for="expCompany">Company</label>
+              <input type="text" id="expCompany" [(ngModel)]="editExperienceData.company" name="company" class="form-control" required />
+            </div>
+            <div class="form-group">
+              <label for="expDuration">Duration</label>
+              <input type="text" id="expDuration" [(ngModel)]="editExperienceData.duration" name="duration" class="form-control"
+                     placeholder="e.g., Jan 2020 - Present" />
+            </div>
+            <div class="form-group">
+              <label for="expDescription">Description</label>
+              <textarea id="expDescription" [(ngModel)]="editExperienceData.description" name="description" class="form-control" rows="4" required></textarea>
+            </div>
+            <div class="modal-actions">
+              <button type="button" (click)="closeExperienceModal()" class="btn btn--secondary">Cancel</button>
+              <button type="submit" class="btn btn--primary">Save Experience</button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <!-- Projects Tab -->
+      <div *ngIf="activeModalTab() === 'projects'" class="tab-content">
+        <div class="projects-list">
+          <div *ngFor="let project of resumeData()?.projects; let i = index" class="project-item">
+            <div class="project-header">
+              <h4>{{ project.name }}</h4>
+              <div class="project-actions">
+                <button (click)="editProject(i)" class="btn btn--small">
+                  <i class="fa-solid fa-edit"></i>
+                </button>
+                <button (click)="deleteProject(i)" class="btn btn--danger btn--small">
+                  <i class="fa-solid fa-trash"></i>
+                </button>
+              </div>
+            </div>
+            <p class="project-description">{{ project.description }}</p>
+            <div class="project-tech" *ngIf="project.technologies && project.technologies.length > 0">
+              <strong>Technologies:</strong> {{ project.technologies.join(', ') }}
+            </div>
+            <div class="project-link" *ngIf="project.link">
+              <strong>Link:</strong> <a [href]="project.link" target="_blank">{{ project.link }}</a>
+            </div>
+          </div>
+          <div *ngIf="!resumeData()?.projects || resumeData()?.projects!.length === 0" class="empty-state">
+            No projects found
+          </div>
+        </div>
+        <div class="modal-actions" *ngIf="!isAddingProject && editingProjectIndex === null">
+          <button (click)="addProject()" class="btn btn--secondary">
+            <i class="fa-solid fa-plus"></i> Add Project
+          </button>
+        </div>
+
+        <!-- Project Form (shown when editing/adding) -->
+        <div *ngIf="editingProjectIndex !== null || isAddingProject" class="project-form">
+          <h4>{{ editingProjectIndex !== null ? 'Edit' : 'Add' }} Project</h4>
+          <form (ngSubmit)="saveProject()" #projectForm="ngForm">
+            <div class="form-group">
+              <label for="projName">Project Name</label>
+              <input type="text" id="projName" [(ngModel)]="editProjectData.name" name="name" class="form-control" required />
+            </div>
+            <div class="form-group">
+              <label for="projDescription">Description</label>
+              <textarea id="projDescription" [(ngModel)]="editProjectData.description" name="description" class="form-control" rows="3" required></textarea>
+            </div>
+            <div class="form-group">
+              <label for="projTechnologies">Technologies (comma-separated)</label>
+              <input type="text" id="projTechnologies" [(ngModel)]="editProjectData.technologiesString" name="technologiesString" class="form-control"
+                     placeholder="React, Node.js, MongoDB, etc." />
+            </div>
+            <div class="form-group">
+              <label for="projLink">Project Link (optional)</label>
+              <input type="url" id="projLink" [(ngModel)]="editProjectData.link" name="link" class="form-control" />
+            </div>
+            <div class="modal-actions">
+              <button type="button" (click)="closeProjectModal()" class="btn btn--secondary">Cancel</button>
+              <button type="submit" class="btn btn--primary">Save Project</button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <!-- Education Tab -->
+      <div *ngIf="activeModalTab() === 'education'" class="tab-content">
+        <div class="education-list">
+          <div *ngFor="let edu of resumeData()?.education; let i = index" class="education-item">
+            <div class="education-header">
+              <h4>{{ edu.degree }}</h4>
+              <div class="education-actions">
+                <button (click)="editEducation(i)" class="btn btn--small">
+                  <i class="fa-solid fa-edit"></i>
+                </button>
+                <button (click)="deleteEducation(i)" class="btn btn--danger btn--small">
+                  <i class="fa-solid fa-trash"></i>
+                </button>
+              </div>
+            </div>
+            <p class="education-institution">{{ edu.institution }}</p>
+            <p class="education-year">{{ edu.year || 'Year not specified' }}</p>
+            <p class="education-details" *ngIf="edu.details">{{ edu.details }}</p>
+          </div>
+          <div *ngIf="!resumeData()?.education || resumeData()?.education!.length === 0" class="empty-state">
+            No education entries found
+          </div>
+        </div>
+        <div class="modal-actions" *ngIf="!isAddingEducation && editingEducationIndex === null">
+          <button (click)="addEducation()" class="btn btn--secondary">
+            <i class="fa-solid fa-plus"></i> Add Education
+          </button>
+        </div>
+
+        <!-- Education Form (shown when editing/adding) -->
+        <div *ngIf="editingEducationIndex !== null || isAddingEducation" class="education-form">
+          <h4>{{ editingEducationIndex !== null ? 'Edit' : 'Add' }} Education</h4>
+          <form (ngSubmit)="saveEducation()" #educationForm="ngForm">
+            <div class="form-group">
+              <label for="eduDegree">Degree</label>
+              <input type="text" id="eduDegree" [(ngModel)]="editEducationData.degree" name="degree" class="form-control" required />
+            </div>
+            <div class="form-group">
+              <label for="eduInstitution">Institution</label>
+              <input type="text" id="eduInstitution" [(ngModel)]="editEducationData.institution" name="institution" class="form-control" required />
+            </div>
+            <div class="form-group">
+              <label for="eduYear">Year</label>
+              <input type="text" id="eduYear" [(ngModel)]="editEducationData.year" name="year" class="form-control"
+                     placeholder="e.g., 2020" />
+            </div>
+            <div class="form-group">
+              <label for="eduDetails">Additional Details (optional)</label>
+              <textarea id="eduDetails" [(ngModel)]="editEducationData.details" name="details" class="form-control" rows="2"></textarea>
+            </div>
+            <div class="modal-actions">
+              <button type="button" (click)="closeEducationModal()" class="btn btn--secondary">Cancel</button>
+              <button type="submit" class="btn btn--primary">Save Education</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Generation Result Modal -->
+<app-generation-modal
+  *ngIf="showGenerationModal()"
+  [data]="generationResult()"
+  (close)="closeGenerationModal()">
+</app-generation-modal>
+
+
