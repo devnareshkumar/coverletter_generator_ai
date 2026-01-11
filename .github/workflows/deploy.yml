@@ -33,7 +33,7 @@ jobs:
       - name: Build
         # REPLACE 'YOUR_REPO_NAME' below with your actual repository name!
         # Example: --base-href /my-portfolio/
-        run: npx ng build --configuration production --base-href /YOUR_REPO_NAME/
+        run: npx ng build --configuration production --base-href /coverletter_generator_ai/
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
