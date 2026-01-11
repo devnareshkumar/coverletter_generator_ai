@@ -1,9 +1,11 @@
-import { Component, OnInit, signal } from '@angular/core';
-import { CommonModule } from '@angular/common';
+import { Component, signal, PLATFORM_ID, Inject, OnInit } from '@angular/core';
+import { isPlatformBrowser, CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { HttpClientModule } from '@angular/common/http';
 import { AIService } from './services/ai.service';
 import { ResumeData } from './models/job.model';
+import { ThemeService, Theme } from './services/theme.service';
+// import jsPDF from 'jspdf';
 
 @Component({
   selector: 'app-root',
@@ -13,61 +15,55 @@ import { ResumeData } from './models/job.model';
   styleUrls: ['./app.component.css']
 })
 export class AppComponent implements OnInit {
-  currentStep = signal<'config' | 'resume' | 'parse' | 'review' | 'job' | 'output'>('config');
+  currentStep = signal<'main' | 'output'>('main');
   isLoading = signal(false);
   errorMessage = signal<string | null>(null);
   successMessage = signal<string | null>(null);
-  
+
+  private isBrowser: boolean;
+
   // Config
-  selectedProvider = signal<'openai' | 'anthropic' | 'gemini' | 'perplexity'>('openai');
   apiKey = signal('');
-  isApiKeySet = signal(false);
-  
+  aiModels = [
+    { id: 'sonar', name: 'Sonar' },
+    { id: 'sonar pro', name: 'Sonar Pro' },
+    { id: 'sonar reasoning pro', name: 'Sonar Reasoning Pro' },
+    { id: 'sonar deep research', name: 'Sonar Deep Research' }
+  ];
+  selectedAiModel = signal(this.aiModels[0].id);
+
   // Resume upload
   resumeText = signal('');
-  
+
   // Parsed resume data
   resumeData = signal<ResumeData | null>(null);
-  
+
   // Job form
   jobTitle = signal('');
   companyName = signal('');
   jobDescription = signal('');
   writingTone = signal<'professional' | 'casual' | 'formal'>('professional');
-  
+
   // Output
   generatedCoverLetter = signal('');
 
-  constructor(private aiService: AIService) {}
+  constructor(
+    private aiService: AIService,
+    @Inject(PLATFORM_ID) platformId: object,
+    private themeService: ThemeService
+  ) {
+    this.isBrowser = isPlatformBrowser(platformId);
+  }
 
   ngOnInit() {
-    const savedKey = localStorage.getItem('ai_api_key');
-    const savedProvider = localStorage.getItem('ai_provider');
-    if (savedKey && savedProvider) {
-      this.apiKey.set(savedKey);
-      this.selectedProvider.set(savedProvider as any);
-      this.isApiKeySet.set(true);
-      this.currentStep.set('resume');
+    if (this.isBrowser) {
+      this.themeService.startSystemThemeListener();
     }
   }
 
-  // Step 1: Configure API Key
-  saveApiKey() {
-    if (!this.apiKey()) {
-      this.errorMessage.set('Please enter an API key');
-      return;
-    }
-    
-    this.aiService.setApiKey(this.apiKey(), this.selectedProvider());
-    this.isApiKeySet.set(true);
-    this.currentStep.set('resume');
-    this.successMessage.set('API key saved!');
-    setTimeout(() => this.successMessage.set(null), 3000);
-  }
-
-  changeApiKey() {
-    this.currentStep.set('config');
-    this.isApiKeySet.set(false);
+  setTheme(event: Event) {
+    const theme = (event.target as HTMLSelectElement).value as Theme;
+    this.themeService.setTheme(theme);
   }
 
   // Step 2: Upload Resume
@@ -77,23 +73,27 @@ export class AppComponent implements OnInit {
       return;
     }
 
+    if (!this.apiKey()) {
+      this.errorMessage.set('Please enter your Perplexity API key.');
+      return;
+    }
+
     this.isLoading.set(true);
     this.errorMessage.set(null);
-    
-    this.aiService.parseResume(this.resumeText()).subscribe({
+
+    this.aiService.parseResume(this.resumeText(), this.apiKey(), this.selectedAiModel()).subscribe({
       next: (response: any) => {
         try {
           let jsonStr = typeof response === 'string' ? response : response.content || response;
           
           if (jsonStr.includes('```json')) {
-            jsonStr = jsonStr.split('```json').split('```').trim();
+            jsonStr = jsonStr.split('```json')[1].split('```')[0].trim();
           } else if (jsonStr.includes('```')) {
-            jsonStr = jsonStr.split('```').split('```').trim();
+            jsonStr = jsonStr.split('```')[1].split('```')[0].trim();
           }
           
           const parsed = JSON.parse(jsonStr);
           this.resumeData.set(parsed);
-          this.currentStep.set('review');
           this.successMessage.set('Resume parsed successfully!');
           setTimeout(() => this.successMessage.set(null), 3000);
         } catch (error: any) {
@@ -108,46 +108,68 @@ export class AppComponent implements OnInit {
     });
   }
 
-  // Step 3: Review and Edit Parsed Data
-  proceedToJobForm() {
-    if (!this.resumeData()) {
-      this.errorMessage.set('Resume data not found');
+  // Step 3: Generate Cover Letter
+  generateCoverLetter() {
+    if (!this.apiKey()) {
+      this.errorMessage.set('Please enter your Perplexity API key before generating.');
       return;
     }
-    this.currentStep.set('job');
-    this.successMessage.set('Ready to fill job details!');
-    setTimeout(() => this.successMessage.set(null), 3000);
-  }
 
-  editResume() {
-    this.currentStep.set('resume');
-  }
-
-  // Step 4: Generate Cover Letter
-  generateCoverLetter() {
     if (!this.jobTitle() || !this.companyName() || !this.jobDescription()) {
       this.errorMessage.set('Please fill in all job fields');
       return;
     }
 
-    if (!this.resumeData()) {
-      this.errorMessage.set('Resume data not found');
+    if (!this.resumeText()) {
+      this.errorMessage.set('Please paste your resume');
       return;
     }
 
     this.isLoading.set(true);
     this.errorMessage.set(null);
-    
+
+    // Automatically parse resume if not already done
+    if (!this.resumeData()) {
+      this.aiService.parseResume(this.resumeText(), this.apiKey(), this.selectedAiModel()).subscribe({
+        next: (response: any) => {
+          try {
+            let jsonStr = typeof response === 'string' ? response : response.content || response;
+            
+            if (jsonStr.includes('```json')) {
+              jsonStr = jsonStr.split('```json')[1].split('```')[0].trim();
+            } else if (jsonStr.includes('```')) {
+              jsonStr = jsonStr.split('```')[1].split('```')[0].trim();
+            }
+            
+            const parsed = JSON.parse(jsonStr);
+            this.resumeData.set(parsed);
+            this.proceedToGenerate();
+          } catch (error: any) {
+            this.errorMessage.set('Failed to parse resume. Please check the format and try again.');
+            this.isLoading.set(false);
+          }
+        },
+        error: (error: any) => {
+          this.errorMessage.set(`Error parsing resume: ${error.message}`);
+          this.isLoading.set(false);
+        }
+      });
+    } else {
+      this.proceedToGenerate();
+    }
+  }
+
+  private proceedToGenerate() {
     const prompt = this.buildPrompt();
     
-    this.aiService.generateCoverLetter(prompt).subscribe({
+    this.aiService.generateCoverLetter(prompt, this.apiKey(), this.selectedAiModel()).subscribe({
       next: (response: any) => {
         this.generatedCoverLetter.set(response.content);
         this.currentStep.set('output');
         this.isLoading.set(false);
       },
       error: (error: any) => {
-        this.errorMessage.set(`Error: ${error.message}`);
+        this.errorMessage.set(`Error generating cover letter: ${error.message}`);
         this.isLoading.set(false);
       }
     });
@@ -169,7 +191,8 @@ export class AppComponent implements OnInit {
 
     const experienceText = resume.experience
       ? resume.experience.map((e: any) => 
-          `Position: ${e.position} at ${e.company} (${e.duration || 'duration not specified'})\nKey Achievements: ${e.description}`
+          `Position: ${e.position} at ${e.company} (${e.duration || 'duration not specified'})
+Key Achievements: ${e.description}`
         ).join('\n\n')
       : 'Not provided';
 
@@ -261,7 +284,7 @@ WRITING GUIDELINES:
 NOW, write the cover letter based on all the above guidelines. Make it compelling, personalized, and tailored to increase the chance of an interview:`;
   }
 
-  // Step 5: Output Actions
+  // Step 4: Output Actions
   downloadAsText() {
     const element = document.createElement('a');
     element.setAttribute('href', `data:text/plain;charset=utf-8,${encodeURIComponent(this.generatedCoverLetter())}`);
@@ -287,6 +310,20 @@ NOW, write the cover letter based on all the above guidelines. Make it compellin
     setTimeout(() => this.successMessage.set(null), 3000);
   }
 
+  /*
+  downloadAsPdf() {
+    const doc = new jsPDF();
+    const margin = 15;
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const text = this.generatedCoverLetter();
+    const lines = doc.splitTextToSize(text, pageWidth - margin * 2);
+    doc.text(lines, margin, margin);
+    doc.save('cover-letter.pdf');
+    this.successMessage.set('Downloaded as PDF file!');
+    setTimeout(() => this.successMessage.set(null), 3000);
+  }
+  */
+
   copyToClipboard() {
     navigator.clipboard.writeText(this.generatedCoverLetter()).then(() => {
       this.successMessage.set('Copied to clipboard!');
@@ -295,22 +332,12 @@ NOW, write the cover letter based on all the above guidelines. Make it compellin
   }
 
   startOver() {
-    this.currentStep.set('resume');
+    this.currentStep.set('main');
     this.jobTitle.set('');
     this.companyName.set('');
     this.jobDescription.set('');
     this.generatedCoverLetter.set('');
     this.successMessage.set('Ready to generate another cover letter!');
-    setTimeout(() => this.successMessage.set(null), 3000);
-  }
-
-  clearApiKey() {
-    localStorage.removeItem('ai_api_key');
-    localStorage.removeItem('ai_provider');
-    this.apiKey.set('');
-    this.isApiKeySet.set(false);
-    this.currentStep.set('config');
-    this.successMessage.set('API key cleared!');
     setTimeout(() => this.successMessage.set(null), 3000);
   }
 }

@@ -1,0 +1,11 @@
+
+body.dark {
+  --background-color: #121212;
+  --text-color: #ffffff;
+  --primary-color: #bb86fc;
+  --card-bg-color: #1e1e1e;
+  --input-bg-color: #2c2c2c;
+  --input-border-color: #444444;
+  --btn-bg-color: #03dac6;
+  --btn-text-color: #000000;
+}
